@@ -64,7 +64,7 @@ function calculateSolarSavings(data) {
 }
 
 // Main endpoint to receive solar calculator form data
-app.post('/api', (req, res) => {
+app.post('/', (req, res) => {
   try {
     console.log('Received data:', JSON.stringify(req.body, null, 2));
     
@@ -100,20 +100,13 @@ app.post('/api', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'Server is running' });
+app.get('/health', (req, res) => {
+  res.status(200).send('Server is running');
 });
 
-// Root endpoint
-app.get('/api', (req, res) => {
-  res.status(200).json({ message: 'Solar Calculator API is running' });
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
-
-// Only start the server if we're not in Vercel
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
 
 module.exports = app; // Export for testing
