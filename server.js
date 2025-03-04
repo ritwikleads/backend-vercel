@@ -3,7 +3,6 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -63,6 +62,11 @@ function calculateSolarSavings(data) {
   };
 }
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ message: 'Server is running' });
+});
+
 // Main endpoint to receive solar calculator form data
 app.post('/', (req, res) => {
   try {
@@ -104,9 +108,5 @@ app.get('/health', (req, res) => {
   res.status(200).send('Server is running');
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-module.exports = app; // Export for testing
+// Export the Express API
+module.exports = app;
