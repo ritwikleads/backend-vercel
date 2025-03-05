@@ -198,9 +198,15 @@ app.post('/', async (req, res) => {
     console.log('Received data:', JSON.stringify(req.body, null, 2));
     
     // Validate request body
-    const { location, propertyInfo } = req.body;
+    const { userInfo, location, propertyInfo } = req.body;
     
-    if (!location || !location.latitude || !location.longitude) {
+    if (!userInfo || !location || !propertyInfo) {
+      return res.status(400).json({ 
+        error: 'Missing required data. Please ensure userInfo, location, and propertyInfo are provided.' 
+      });
+    }
+
+    if (!location.latitude || !location.longitude) {
       return res.status(400).json({
         error: 'Missing location coordinates. Please ensure latitude and longitude are provided.'
       });
@@ -241,9 +247,28 @@ app.post('/', async (req, res) => {
     
     // Process the API response with user's monthly bill amount
     const processedData = processSolarApiResponse(apiResponse, monthlyElectricityBill);
+
+    // Add user information to the response
+    const response = {
+      ...processedData,
+      userInfo: {
+        name: userInfo.name,
+        phone: userInfo.phone,
+        email: userInfo.email
+      },
+      location: {
+        address: location.address,
+        latitude: location.latitude,
+        longitude: location.longitude
+      },
+      propertyInfo: {
+        isOwner: propertyInfo.isOwner,
+        monthlyElectricityBill: monthlyElectricityBill
+      }
+    };
     
     // Return the processed data
-    return res.status(200).json(processedData);
+    return res.status(200).json(response);
   } catch (error) {
     console.error('Error processing request:', error);
     return res.status(500).json({
