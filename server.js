@@ -218,7 +218,13 @@ app.post('/', async (req, res) => {
     }
     
     // Your Google API Key
-    const googleApiKey = 'AIzaSyAh2fAYgE9aN3IrWj_KNvJwafJJicFjZTk';
+    const googleApiKey = process.env.GOOGLE_API_KEY;
+    
+    if (!googleApiKey) {
+      return res.status(500).json({
+        error: 'Google API key is not configured'
+      });
+    }
     
     // Call Google Solar API
     const apiResponse = await callGoogleSolarApi(
