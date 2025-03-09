@@ -393,22 +393,6 @@ app.post('/', async (req, res) => {
     // Process the building insights API response
     const processedData = processSolarApiResponse(buildingInsightsResponse, monthlyElectricityBill);
     
-    // Download the annual flux GeoTIFF if available
-    let annualFluxBase64 = null;
-    let annualFluxContentType = null;
-    
-    if (dataLayersResponse && dataLayersResponse.annualFluxUrl) {
-      try {
-        const geoTiffData = await downloadGeoTiff(dataLayersResponse.annualFluxUrl, googleApiKey);
-        // Convert binary data to base64 for JSON response
-        annualFluxBase64 = Buffer.from(geoTiffData.data).toString('base64');
-        annualFluxContentType = geoTiffData.contentType;
-      } catch (error) {
-        console.error('Error downloading annual flux data:', error);
-        // Continue with the response even if annual flux download fails
-      }
-    }
-    
     // Combine all data into a single response
     const response = {
       // Solar calculation results
@@ -447,13 +431,7 @@ app.post('/', async (req, res) => {
           maskUrl: dataLayersResponse?.maskUrl,
           annualFluxUrl: dataLayersResponse?.annualFluxUrl,
           monthlyFluxUrl: dataLayersResponse?.monthlyFluxUrl
-        },
-        
-        // Include the annual flux data if available
-        annualFluxData: annualFluxBase64 ? {
-          contentType: annualFluxContentType,
-          base64Data: annualFluxBase64
-        } : null
+        }
       }
     };
     
