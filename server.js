@@ -29,6 +29,57 @@ async function callGoogleSolarApi(latitude, longitude, apiKey) {
   }
 }
 
+// Function to get data layers from Google Solar API
+async function getDataLayers(latitude, longitude, apiKey) {
+  try {
+    const url = `https://solar.googleapis.com/v1/dataLayers:get?location.latitude=${latitude}&location.longitude=${longitude}&radiusMeters=100&view=FULL_LAYERS&requiredQuality=HIGH&exactQualityRequired=true&pixelSizeMeters=0.5&key=${apiKey}`;
+    
+    console.log(`Fetching data layers for coordinates: ${latitude}, ${longitude}`);
+    const response = await axios.get(url);
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching data layers:', error.message);
+    if (error.response) {
+      console.error('Response data:', error.response.data);
+      console.error('Response status:', error.response.status);
+    }
+    throw error;
+  }
+}
+
+// Function to download GeoTIFF file from URL
+async function downloadGeoTiff(geoTiffUrl, apiKey) {
+  try {
+    // Extract the ID from the URL
+    const idMatch = geoTiffUrl.match(/id=([^&]+)/);
+    if (!idMatch || !idMatch[1]) {
+      throw new Error('Invalid GeoTIFF URL format');
+    }
+    
+    const id = idMatch[1];
+    const downloadUrl = `https://solar.googleapis.com/v1/geoTiff:get?id=${id}&key=${apiKey}`;
+    
+    console.log(`Downloading GeoTIFF from: ${downloadUrl}`);
+    
+    // Set responseType to arraybuffer to get binary data
+    const response = await axios.get(downloadUrl, {
+      responseType: 'arraybuffer'
+    });
+  
+  return {
+      data: response.data,
+      contentType: response.headers['content-type']
+    };
+  } catch (error) {
+    console.error('Error downloading GeoTIFF:', error.message);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+    }
+    throw error;
+  }
+}
+
 // Function to process Google Solar API response and extract relevant data
 function processSolarApiResponse(apiResponse, userMonthlyBill) {
   if (!apiResponse || !apiResponse.solarPotential) {
@@ -192,6 +243,91 @@ app.get('/', (req, res) => {
   res.status(200).json({ status: 'Solar API server is running' });
 });
 
+// Endpoint to get data layers
+app.get('/data-layers', async (req, res) => {
+  try {
+    const { latitude, longitude } = req.query;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        error: 'Missing location coordinates. Please provide latitude and longitude as query parameters.'
+      });
+    }
+    
+    // Your Google API Key
+    const googleApiKey = process.env.GOOGLE_API_KEY;
+    
+    if (!googleApiKey) {
+      return res.status(500).json({
+        error: 'Google API key is not configured'
+      });
+    }
+    
+    const dataLayers = await getDataLayers(
+      parseFloat(latitude), 
+      parseFloat(longitude),
+      googleApiKey
+    );
+    
+    return res.status(200).json(dataLayers);
+  } catch (error) {
+    console.error('Error fetching data layers:', error);
+    return res.status(500).json({
+      error: 'An error occurred while fetching data layers: ' + error.message
+    });
+  }
+});
+
+// Endpoint to download annual flux data
+app.get('/annual-flux', async (req, res) => {
+  try {
+    const { latitude, longitude } = req.query;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        error: 'Missing location coordinates. Please provide latitude and longitude as query parameters.'
+      });
+    }
+    
+    // Your Google API Key
+    const googleApiKey = process.env.GOOGLE_API_KEY;
+    
+    if (!googleApiKey) {
+      return res.status(500).json({
+        error: 'Google API key is not configured'
+      });
+    }
+    
+    // First get the data layers to extract the annual flux URL
+    const dataLayers = await getDataLayers(
+      parseFloat(latitude), 
+      parseFloat(longitude),
+      googleApiKey
+    );
+    
+    if (!dataLayers.annualFluxUrl) {
+      return res.status(404).json({
+        error: 'Annual flux data not available for this location'
+      });
+    }
+    
+    // Download the annual flux GeoTIFF
+    const geoTiffData = await downloadGeoTiff(dataLayers.annualFluxUrl, googleApiKey);
+    
+    // Set appropriate headers for the binary file
+    res.setHeader('Content-Type', geoTiffData.contentType);
+    res.setHeader('Content-Disposition', 'attachment; filename="annual_flux.tiff"');
+    
+    // Send the binary data
+    return res.send(Buffer.from(geoTiffData.data));
+  } catch (error) {
+    console.error('Error downloading annual flux:', error);
+    return res.status(500).json({
+      error: 'An error occurred while downloading annual flux data: ' + error.message
+    });
+  }
+});
+
 // Main endpoint to receive form data
 app.post('/', async (req, res) => {
   try {
@@ -205,10 +341,10 @@ app.post('/', async (req, res) => {
         error: 'Missing required data. Please ensure userInfo, location, and propertyInfo are provided.' 
       });
     }
-
+    
     if (!location.latitude || !location.longitude) {
-      return res.status(400).json({
-        error: 'Missing location coordinates. Please ensure latitude and longitude are provided.'
+      return res.status(400).json({ 
+        error: 'Missing location coordinates. Please ensure latitude and longitude are provided.' 
       });
     }
     
@@ -232,46 +368,100 @@ app.post('/', async (req, res) => {
       });
     }
     
-    // Call Google Solar API
-    const apiResponse = await callGoogleSolarApi(
-      location.latitude, 
-      location.longitude,
-      googleApiKey
-    );
+    // Make both API calls in parallel for better performance
+    const [buildingInsightsResponse, dataLayersResponse] = await Promise.all([
+      // Call Google Solar API for building insights
+      callGoogleSolarApi(
+        location.latitude, 
+        location.longitude,
+        googleApiKey
+      ),
+      // Get data layers information
+      getDataLayers(
+        location.latitude, 
+        location.longitude,
+        googleApiKey
+      )
+    ]);
     
-    if (!apiResponse) {
+    if (!buildingInsightsResponse) {
       return res.status(500).json({
         error: 'Failed to retrieve data from Google Solar API'
       });
     }
     
-    // Process the API response with user's monthly bill amount
-    const processedData = processSolarApiResponse(apiResponse, monthlyElectricityBill);
-
-    // Add user information to the response
+    // Process the building insights API response
+    const processedData = processSolarApiResponse(buildingInsightsResponse, monthlyElectricityBill);
+    
+    // Download the annual flux GeoTIFF if available
+    let annualFluxBase64 = null;
+    let annualFluxContentType = null;
+    
+    if (dataLayersResponse && dataLayersResponse.annualFluxUrl) {
+      try {
+        const geoTiffData = await downloadGeoTiff(dataLayersResponse.annualFluxUrl, googleApiKey);
+        // Convert binary data to base64 for JSON response
+        annualFluxBase64 = Buffer.from(geoTiffData.data).toString('base64');
+        annualFluxContentType = geoTiffData.contentType;
+      } catch (error) {
+        console.error('Error downloading annual flux data:', error);
+        // Continue with the response even if annual flux download fails
+      }
+    }
+    
+    // Combine all data into a single response
     const response = {
+      // Solar calculation results
       ...processedData,
+      
+      // User information
       userInfo: {
         name: userInfo.name,
         phone: userInfo.phone,
         email: userInfo.email
       },
+      
+      // Location information
       location: {
         address: location.address,
         latitude: location.latitude,
         longitude: location.longitude
       },
+      
+      // Property information
       propertyInfo: {
         isOwner: propertyInfo.isOwner,
         monthlyElectricityBill: monthlyElectricityBill
+      },
+      
+      // Data layers information
+      dataLayers: {
+        imageryDate: dataLayersResponse?.imageryDate,
+        imageryProcessedDate: dataLayersResponse?.imageryProcessedDate,
+        imageryQuality: dataLayersResponse?.imageryQuality,
+        
+        // Include URLs for reference
+        dataLayerUrls: {
+          dsmUrl: dataLayersResponse?.dsmUrl,
+          rgbUrl: dataLayersResponse?.rgbUrl,
+          maskUrl: dataLayersResponse?.maskUrl,
+          annualFluxUrl: dataLayersResponse?.annualFluxUrl,
+          monthlyFluxUrl: dataLayersResponse?.monthlyFluxUrl
+        },
+        
+        // Include the annual flux data if available
+        annualFluxData: annualFluxBase64 ? {
+          contentType: annualFluxContentType,
+          base64Data: annualFluxBase64
+        } : null
       }
     };
     
-    // Return the processed data
+    // Return the combined response
     return res.status(200).json(response);
   } catch (error) {
     console.error('Error processing request:', error);
-    return res.status(500).json({
+    return res.status(500).json({ 
       error: 'An error occurred while processing your request: ' + error.message
     });
   }
