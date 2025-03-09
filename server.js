@@ -263,55 +263,17 @@ app.get('/data-layers', async (req, res) => {
       });
     }
     
-    // Get both data layers and building insights in parallel
-    const [dataLayers, buildingInsights] = await Promise.all([
-      getDataLayers(parseFloat(latitude), parseFloat(longitude), googleApiKey),
-      callGoogleSolarApi(parseFloat(latitude), parseFloat(longitude), googleApiKey)
-    ]);
-
-    if (!dataLayers.annualFluxUrl) {
-      return res.status(404).json({
-        error: 'Annual flux data not available for this location'
-      });
-    }
-
-    // Download the GeoTIFF data
-    const geoTiffData = await downloadGeoTiff(dataLayers.annualFluxUrl, googleApiKey);
-
-    // Process the building insights data
-    const processedData = processSolarApiResponse(buildingInsights, 0); // passing 0 as default monthly bill
-
-    // Prepare the combined response
-    const response = {
-      // Include all the processed solar data
-      solarData: processedData,
-      
-      // Include data layers information
-      dataLayers: {
-        imageryDate: dataLayers.imageryDate,
-        imageryProcessedDate: dataLayers.imageryProcessedDate,
-        imageryQuality: dataLayers.imageryQuality,
-        dataLayerUrls: {
-          dsmUrl: dataLayers.dsmUrl,
-          rgbUrl: dataLayers.rgbUrl,
-          maskUrl: dataLayers.maskUrl,
-          annualFluxUrl: dataLayers.annualFluxUrl,
-          monthlyFluxUrl: dataLayers.monthlyFluxUrl
-        }
-      },
-      
-      // Include the GeoTIFF data as base64
-      annualFluxData: {
-        contentType: geoTiffData.contentType,
-        base64Data: Buffer.from(geoTiffData.data).toString('base64')
-      }
-    };
-
-    return res.status(200).json(response);
+    const dataLayers = await getDataLayers(
+      parseFloat(latitude), 
+      parseFloat(longitude),
+      googleApiKey
+    );
+    
+    return res.status(200).json(dataLayers);
   } catch (error) {
-    console.error('Error fetching data:', error);
+    console.error('Error fetching data layers:', error);
     return res.status(500).json({
-      error: 'An error occurred while fetching data: ' + error.message
+      error: 'An error occurred while fetching data layers: ' + error.message
     });
   }
 });
