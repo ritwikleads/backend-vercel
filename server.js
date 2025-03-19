@@ -29,25 +29,6 @@ async function callGoogleSolarApi(latitude, longitude, apiKey) {
   }
 }
 
-// Function to get data layers from Google Solar API
-async function getDataLayers(latitude, longitude, apiKey) {
-  try {
-    const url = `https://solar.googleapis.com/v1/dataLayers:get?location.latitude=${latitude}&location.longitude=${longitude}&radiusMeters=100&view=FULL_LAYERS&requiredQuality=HIGH&exactQualityRequired=true&pixelSizeMeters=0.5&key=${apiKey}`;
-    
-    console.log(`Fetching data layers for coordinates: ${latitude}, ${longitude}`);
-    const response = await axios.get(url);
-    
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching data layers:', error.message);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-    }
-    throw error;
-  }
-}
-
 // Function to download GeoTIFF file from URL
 async function downloadGeoTiff(geoTiffUrl, apiKey) {
   try {
@@ -243,91 +224,6 @@ app.get('/', (req, res) => {
   res.status(200).json({ status: 'Solar API server is running' });
 });
 
-// Endpoint to get data layers
-app.get('/data-layers', async (req, res) => {
-  try {
-    const { latitude, longitude } = req.query;
-    
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        error: 'Missing location coordinates. Please provide latitude and longitude as query parameters.'
-      });
-    }
-    
-    // Your Google API Key
-    const googleApiKey = process.env.GOOGLE_API_KEY;
-    
-    if (!googleApiKey) {
-      return res.status(500).json({
-        error: 'Google API key is not configured'
-      });
-    }
-    
-    const dataLayers = await getDataLayers(
-      parseFloat(latitude), 
-      parseFloat(longitude),
-      googleApiKey
-    );
-    
-    return res.status(200).json(dataLayers);
-  } catch (error) {
-    console.error('Error fetching data layers:', error);
-    return res.status(500).json({
-      error: 'An error occurred while fetching data layers: ' + error.message
-    });
-  }
-});
-
-// Endpoint to download annual flux data
-app.get('/annual-flux', async (req, res) => {
-  try {
-    const { latitude, longitude } = req.query;
-    
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        error: 'Missing location coordinates. Please provide latitude and longitude as query parameters.'
-      });
-    }
-    
-    // Your Google API Key
-    const googleApiKey = process.env.GOOGLE_API_KEY;
-    
-    if (!googleApiKey) {
-      return res.status(500).json({
-        error: 'Google API key is not configured'
-      });
-    }
-    
-    // First get the data layers to extract the annual flux URL
-    const dataLayers = await getDataLayers(
-      parseFloat(latitude), 
-      parseFloat(longitude),
-      googleApiKey
-    );
-    
-    if (!dataLayers.annualFluxUrl) {
-      return res.status(404).json({
-        error: 'Annual flux data not available for this location'
-      });
-    }
-    
-    // Download the annual flux GeoTIFF
-    const geoTiffData = await downloadGeoTiff(dataLayers.annualFluxUrl, googleApiKey);
-    
-    // Set appropriate headers for the binary file
-    res.setHeader('Content-Type', geoTiffData.contentType);
-    res.setHeader('Content-Disposition', 'attachment; filename="annual_flux.tiff"');
-    
-    // Send the binary data
-    return res.send(Buffer.from(geoTiffData.data));
-  } catch (error) {
-    console.error('Error downloading annual flux:', error);
-    return res.status(500).json({
-      error: 'An error occurred while downloading annual flux data: ' + error.message
-    });
-  }
-});
-
 // Main endpoint to receive form data
 app.post('/', async (req, res) => {
   try {
@@ -368,21 +264,12 @@ app.post('/', async (req, res) => {
       });
     }
     
-    // Make both API calls in parallel for better performance
-    const [buildingInsightsResponse, dataLayersResponse] = await Promise.all([
-      // Call Google Solar API for building insights
-      callGoogleSolarApi(
-        location.latitude, 
-        location.longitude,
-        googleApiKey
-      ),
-      // Get data layers information
-      getDataLayers(
-        location.latitude, 
-        location.longitude,
-        googleApiKey
-      )
-    ]);
+    // Call Google Solar API for building insights
+    const buildingInsightsResponse = await callGoogleSolarApi(
+      location.latitude, 
+      location.longitude,
+      googleApiKey
+    );
     
     if (!buildingInsightsResponse) {
       return res.status(500).json({
@@ -416,22 +303,6 @@ app.post('/', async (req, res) => {
       propertyInfo: {
         isOwner: propertyInfo.isOwner,
         monthlyElectricityBill: monthlyElectricityBill
-      },
-      
-      // Data layers information
-      dataLayers: {
-        imageryDate: dataLayersResponse?.imageryDate,
-        imageryProcessedDate: dataLayersResponse?.imageryProcessedDate,
-        imageryQuality: dataLayersResponse?.imageryQuality,
-        
-        // Include URLs for reference
-        dataLayerUrls: {
-          dsmUrl: dataLayersResponse?.dsmUrl,
-          rgbUrl: dataLayersResponse?.rgbUrl,
-          maskUrl: dataLayersResponse?.maskUrl,
-          annualFluxUrl: dataLayersResponse?.annualFluxUrl,
-          monthlyFluxUrl: dataLayersResponse?.monthlyFluxUrl
-        }
       }
     };
     
