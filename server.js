@@ -536,28 +536,49 @@ async function uploadFileToHubSpot(filePath, fileName, contactId) {
     // Extract file ID from response
     const fileId = response.data.id;
     
-    // Associate the file with the contact using direct API call
-    try {
-      // Use v4 Associations API endpoint
-      await axios({
-        method: 'put',
-        url: `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/files/${fileId}`,
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      console.log(`Successfully associated file ${fileId} with contact ${contactId}`);
-    } catch (associationError) {
-      console.error('Error associating file with contact:', associationError.message);
-      if (associationError.response && associationError.response.data) {
-        console.error('Association API Error Details:', JSON.stringify(associationError.response.data, null, 2));
-      }
-      // Continue with the process even if association fails
-      console.log('Continuing despite association error - file was uploaded successfully');
+    // Store file URL for potential later use
+    let fileUrl = null;
+    if (response.data && response.data.url) {
+      fileUrl = response.data.url;
     }
     
-    return fileId;
+    // Since direct association is challenging, let's create a note on the contact record with the file link
+    try {
+      // Create a note with the file information
+      const noteResponse = await hubspotClient.crm.objects.notes.basicApi.create({
+        properties: {
+          hs_timestamp: Date.now(),
+          hs_note_body: `Solar Report PDF: ${fileName} [File ID: ${fileId}]${fileUrl ? `\n\nDownload: ${fileUrl}` : ''}`,
+          hubspot_owner_id: "1" // Default owner or change as needed
+        },
+        associations: [
+          {
+            to: {
+              id: contactId
+            },
+            types: [
+              {
+                category: "HUBSPOT_DEFINED",
+                typeId: "230"  // Standard note-to-contact association
+              }
+            ]
+          }
+        ]
+      });
+      
+      console.log(`Successfully created note with file information for contact ${contactId}`);
+    } catch (noteError) {
+      console.error('Error creating note with file information:', noteError.message);
+      if (noteError.response && noteError.response.data) {
+        console.error('Note API Error Details:', JSON.stringify(noteError.response.data, null, 2));
+      }
+      // Continue with the process even if note creation fails
+    }
+    
+    return {
+      fileId: fileId,
+      fileUrl: fileUrl
+    };
   } catch (error) {
     console.error('Error uploading file to HubSpot:', error);
     if (error.response && error.response.data) {
@@ -663,7 +684,7 @@ app.post('/', async (req, res) => {
       
       // Upload PDF to HubSpot and associate with contact
       const fileName = `Solar_Report_${userInfo.name.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
-      const fileId = await uploadFileToHubSpot(pdfFilePath, fileName, contactId);
+      const fileUploadResult = await uploadFileToHubSpot(pdfFilePath, fileName, contactId);
       
       // Clean up the temporary PDF file
       fs.unlinkSync(pdfFilePath);
@@ -671,7 +692,8 @@ app.post('/', async (req, res) => {
       // Add HubSpot information to the response
       responseData.hubspot = {
         contactId: contactId,
-        fileId: fileId,
+        fileId: fileUploadResult.fileId,
+        fileUrl: fileUploadResult.fileUrl,
         fileName: fileName
       };
     } catch (hubspotError) {
