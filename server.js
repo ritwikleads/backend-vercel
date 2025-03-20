@@ -506,9 +506,16 @@ async function uploadFileToHubSpot(filePath, fileName, contactId) {
     
     // Add required metadata
     form.append('fileName', fileName);
+    
+    // Add required folderPath parameter - create a "solar-reports" folder in HubSpot
+    form.append('folderPath', '/solar-reports');
+    
+    // Add options
     form.append('options', JSON.stringify({
       access: 'PRIVATE',
-      overwrite: true
+      overwrite: true,
+      duplicateValidationStrategy: 'NONE',
+      duplicateValidationScope: 'EXACT_FOLDER'
     }));
     
     // Get the API key from environment
@@ -540,6 +547,9 @@ async function uploadFileToHubSpot(filePath, fileName, contactId) {
     return fileId;
   } catch (error) {
     console.error('Error uploading file to HubSpot:', error);
+    if (error.response && error.response.data) {
+      console.error('HubSpot API Error Details:', JSON.stringify(error.response.data, null, 2));
+    }
     throw error;
   }
 }
