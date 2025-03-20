@@ -536,13 +536,26 @@ async function uploadFileToHubSpot(filePath, fileName, contactId) {
     // Extract file ID from response
     const fileId = response.data.id;
     
-    // Associate the file with the contact
-    await hubspotClient.crm.contacts.associationsApi.create(
-      contactId,
-      'file',
-      fileId,
-      'contact_to_file'
-    );
+    // Associate the file with the contact using direct API call
+    try {
+      // Use v4 Associations API endpoint
+      await axios({
+        method: 'put',
+        url: `https://api.hubapi.com/crm/v4/objects/contacts/${contactId}/associations/files/${fileId}`,
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log(`Successfully associated file ${fileId} with contact ${contactId}`);
+    } catch (associationError) {
+      console.error('Error associating file with contact:', associationError.message);
+      if (associationError.response && associationError.response.data) {
+        console.error('Association API Error Details:', JSON.stringify(associationError.response.data, null, 2));
+      }
+      // Continue with the process even if association fails
+      console.log('Continuing despite association error - file was uploaded successfully');
+    }
     
     return fileId;
   } catch (error) {
