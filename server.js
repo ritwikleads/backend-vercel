@@ -533,46 +533,113 @@ async function uploadFileToHubSpot(filePath, fileName, contactId) {
       }
     );
     
-    // Extract file ID from response
+    // Extract file ID and URL from response
     const fileId = response.data.id;
-    
-    // Store file URL for potential later use
     let fileUrl = null;
     if (response.data && response.data.url) {
       fileUrl = response.data.url;
     }
     
-    // Since direct association is challenging, let's create a note on the contact record with the file link
+    // Create a note on the contact with the file information
     try {
-      // Create a note with the file information
-      const noteResponse = await hubspotClient.crm.objects.notes.basicApi.create({
-        properties: {
-          hs_timestamp: Date.now(),
-          hs_note_body: `Solar Report PDF: ${fileName} [File ID: ${fileId}]${fileUrl ? `\n\nDownload: ${fileUrl}` : ''}`,
-          hubspot_owner_id: "1" // Default owner or change as needed
-        },
-        associations: [
-          {
-            to: {
-              id: contactId
-            },
-            types: [
-              {
-                category: "HUBSPOT_DEFINED",
-                typeId: "230"  // Standard note-to-contact association
-              }
-            ]
+      // Create a note with the file information using the correct association format
+      await hubspotClient.apiRequest({
+        method: 'POST',
+        path: '/crm/v3/objects/notes',
+        body: {
+          properties: {
+            hs_timestamp: Date.now(),
+            hs_note_body: `Solar Report PDF: ${fileName} [File ID: ${fileId}]${fileUrl ? `\n\nDownload: ${fileUrl}` : ''}`
           }
-        ]
+        }
       });
       
-      console.log(`Successfully created note with file information for contact ${contactId}`);
-    } catch (noteError) {
-      console.error('Error creating note with file information:', noteError.message);
-      if (noteError.response && noteError.response.data) {
-        console.error('Note API Error Details:', JSON.stringify(noteError.response.data, null, 2));
+      // Now associate the note with the contact using a separate API call
+      const noteSearchResponse = await hubspotClient.apiRequest({
+        method: 'POST',
+        path: '/crm/v3/objects/notes/search',
+        body: {
+          sorts: [
+            {
+              propertyName: "hs_timestamp",
+              direction: "DESCENDING"
+            }
+          ],
+          limit: 1,
+          properties: ["hs_note_body"],
+          filterGroups: [
+            {
+              filters: [
+                {
+                  propertyName: "hs_note_body",
+                  operator: "CONTAINS_TOKEN",
+                  value: `${fileId}`
+                }
+              ]
+            }
+          ]
+        }
+      });
+      
+      if (noteSearchResponse.results && noteSearchResponse.results.length > 0) {
+        const noteId = noteSearchResponse.results[0].id;
+        
+        // Associate the note with the contact
+        await hubspotClient.apiRequest({
+          method: 'PUT',
+          path: `/crm/v3/objects/notes/${noteId}/associations/contacts/${contactId}/note_to_contact`,
+        });
+        
+        console.log(`Successfully created and associated note with file information for contact ${contactId}`);
+      } else {
+        console.log('Note was created but could not be found for association');
       }
+    } catch (noteError) {
+      console.error('Error handling note creation/association:', noteError.message);
+      console.error('Error details:', noteError);
       // Continue with the process even if note creation fails
+    }
+    
+    // Also try to use CRM attachments API as a fallback for file association
+    try {
+      console.log('Attempting to create engagement with file attachment as fallback...');
+      
+      // Create a simple engagement with attachment
+      const engagementData = {
+        engagement: {
+          type: 'NOTE',
+          timestamp: Date.now()
+        },
+        associations: {
+          contactIds: [contactId]
+        },
+        metadata: {
+          body: `Solar Report Generated: ${fileName}`
+        },
+        attachments: [
+          {
+            id: fileId
+          }
+        ]
+      };
+      
+      await axios({
+        method: 'post',
+        url: 'https://api.hubapi.com/engagements/v1/engagements',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        data: JSON.stringify(engagementData)
+      });
+      
+      console.log('Successfully created engagement with file attachment');
+    } catch (engagementError) {
+      console.error('Error creating engagement with attachment:', engagementError.message);
+      if (engagementError.response && engagementError.response.data) {
+        console.error('Engagement API Error Details:', JSON.stringify(engagementError.response.data, null, 2));
+      }
+      // Continue even if this fails
     }
     
     return {
