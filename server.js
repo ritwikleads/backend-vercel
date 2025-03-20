@@ -376,11 +376,13 @@ async function createOrUpdateHubSpotContact(data) {
     const searchResponse = await hubspotClient.crm.contacts.searchApi.doSearch({
       filterGroups: [{
         filters: [{
-          property: 'email',
+          propertyName: 'email',
           operator: 'EQ',
           value: userInfo.email
         }]
-      }]
+      }],
+      properties: ['email', 'firstname', 'lastname', 'phone'],
+      limit: 1
     });
     
     let contactId;
@@ -407,9 +409,6 @@ async function createOrUpdateHubSpotContact(data) {
       console.log(`Created new contact with ID: ${contactId}`);
     }
     
-    // Create custom properties for the solar data (if they don't exist)
-    // Note: In a production app, you'd want to create these properties via the HubSpot API or UI before running this code
-    
     // Update contact with solar data
     const solarProperties = {
       // Standard properties
@@ -424,10 +423,7 @@ async function createOrUpdateHubSpotContact(data) {
       
       // Financial data - select a recommended option based on viability
       solar_recommended_option: getRecommendedFinancingOption(data.financingOptions),
-      solar_20yr_savings: get20YearSavings(data.financingOptions),
-      
-      // Raw data can be stored as a note
-      solar_raw_data: JSON.stringify(data)
+      solar_20yr_savings: get20YearSavings(data.financingOptions)
     };
     
     // Update the contact with solar properties
