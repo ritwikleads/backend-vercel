@@ -9,6 +9,8 @@ const os = require('os');
 
 // Add required HubSpot client library
 const hubspot = require('@hubspot/api-client');
+// Add FormData for file uploads
+const FormData = require('form-data');
 
 const app = express();
 
@@ -490,23 +492,42 @@ function get20YearSavings(financingOptions) {
   return maxSavings.toString();
 }
 
-// Function to upload a file to HubSpot
+// FIXED: Function to upload a file to HubSpot
 async function uploadFileToHubSpot(filePath, fileName, contactId) {
   try {
-    // Read the file
-    const fileContent = fs.readFileSync(filePath);
+    // Create a form data object for file upload
+    const form = new FormData();
     
-    // Upload the file to HubSpot's File Manager
-    const fileUploadResponse = await hubspotClient.files.filesApi.upload({
-      file: fileContent,
-      fileName: fileName,
-      options: {
-        access: 'PRIVATE',
-        overwrite: true
-      }
+    // Add the file to the form with the proper filename
+    form.append('file', fs.createReadStream(filePath), {
+      filename: fileName,
+      contentType: 'application/pdf'
     });
     
-    const fileId = fileUploadResponse.objects[0].id;
+    // Add required metadata
+    form.append('fileName', fileName);
+    form.append('options', JSON.stringify({
+      access: 'PRIVATE',
+      overwrite: true
+    }));
+    
+    // Get the API key from environment
+    const apiKey = process.env.HUBSPOT_API_KEY;
+    
+    // Make direct API request to HubSpot
+    const response = await axios.post(
+      'https://api.hubapi.com/files/v3/files',
+      form,
+      {
+        headers: {
+          ...form.getHeaders(),
+          'Authorization': `Bearer ${apiKey}`
+        }
+      }
+    );
+    
+    // Extract file ID from response
+    const fileId = response.data.id;
     
     // Associate the file with the contact
     await hubspotClient.crm.contacts.associationsApi.create(
